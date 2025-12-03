@@ -125,10 +125,16 @@
             text-transform: uppercase;
             border-bottom: 1px solid rgba(255,255,255,0.1);
             padding: 2rem 0;
+            /* ВАЖНО: Стартовая прозрачность 1. Мы скроем их через JS. 
+               Это гарантия того, что если JS сломается, текст будет виден. */
+            opacity: 1; 
             color: transparent;
             -webkit-text-stroke: 1px rgba(255,255,255,0.4);
             transition: color 0.3s;
-            will-change: transform;
+            /* ВАЖНО: Резервируем место жестко */
+            min-height: 12vw; 
+            display: flex;
+            align-items: center;
         }
         .velocity-item:hover {
             color: var(--c-accent);
@@ -184,6 +190,16 @@
         
         /* New Stagger Animation Class */
         .stagger-in { opacity: 0; transform: translateY(20px); }
+		
+		#velocity-section {
+    position: relative;
+    z-index: 30; /* Поднимаем выше фона и бутылки */
+    background: transparent; /* Убедимся, что фон прозрачный */
+    pointer-events: none; /* Чтобы скролл не застревал, если текст огромный */
+}
+#velocity-section .container {
+    pointer-events: auto; /* Возвращаем взаимодействие с текстом */
+}
 
     </style>
 </head>
@@ -621,17 +637,52 @@
             animate();
         };
 
-  const initAnimations = () => {
-            // Velocity Section
-            gsap.utils.toArray('.velocity-item').forEach((item, i) => {
-                gsap.fromTo(item, 
-                    { x: i % 2 === 0 ? -50 : 50, opacity: 0 },
-                    { 
-                        x: 0, opacity: 1, 
-                        scrollTrigger: { trigger: item, start: "top 90%", end: "top 60%", scrub: 1 } 
-                    }
-                );
+const initAnimations = () => {
+            // --- 1. VELOCITY SECTION (NUCLEAR FIX) ---
+            
+            // Сначала убедимся, что ScrollTrigger знает размеры
+            ScrollTrigger.refresh();
+
+            const vSection = document.querySelector('#velocity-section');
+            const vItems = gsap.utils.toArray('.velocity-item');
+
+            // АНИМАЦИЯ
+            // Мы говорим: "Анимируй ИЗ состояния (прозрачность 0, сдвиг)", 
+            // в конечное состояние (которое у нас прописано в CSS - opacity 1).
+            gsap.from(vItems, {
+                y: 50, // Сдвиг снизу вверх (стабильнее чем X)
+                opacity: 0,
+                duration: 1,
+                stagger: 0.1, // Пауза между появлением слов
+                ease: "power2.out",
+                scrollTrigger: {
+                    trigger: vSection, // Триггер на всю секцию
+                    start: "top 90%",  // Начинаем, когда верх секции почти внизу экрана
+                    end: "bottom 20%",
+                    toggleActions: "play none none reverse" // Играть при входе, реверс при уходе
+                }
             });
+
+            // СТРАХОВКА (SAFETY NET)
+            // Это код "последней надежды". Если через 0.5 сек или 2 сек
+            // элементы все еще невидимы из-за бага — мы включаем их насильно.
+            const forceShow = () => {
+                vItems.forEach(item => {
+                    // Если элемент "спрятан" GSAP-ом, но мы уже прокрутили ниже этой секции
+                    // или просто произошел глюк
+                    if (gsap.getProperty(item, "opacity") === 0) {
+                        gsap.to(item, { opacity: 1, y: 0, duration: 0.5, overwrite: true });
+                    }
+                });
+            };
+
+            // Проверяем через 1 секунду и через 3 секунды после загрузки
+            setTimeout(forceShow, 1000);
+            setTimeout(forceShow, 3000);
+
+            
+            // --- ОСТАЛЬНОЙ КОД БЕЗ ИЗМЕНЕНИЙ ---
+            // (Ваша анимация наклона)
             ScrollTrigger.create({
                 trigger: "#velocity-section",
                 onUpdate: (self) => {
@@ -640,24 +691,19 @@
                 }
             });
 
-            // Liquid Confidence
+            // (Далее идут Liquid Confidence и остальные секции...)
             const liquidTl = gsap.timeline({
                 scrollTrigger: { trigger: "#liquid-trigger", start: "top top", end: "bottom bottom", scrub: 1, pin: ".liquid-section" }
             });
             
             liquidTl.to('.word-top', { y: '-120%', opacity: 0.3, duration: 2, ease: "power4.out" }, "start")
-                    // Текст поднят выше (60% вместо 120%)
                     .to('.word-bottom', { y: '60%', opacity: 0.3, duration: 2, ease: "power4.out" }, "start")
-                    
-                    // --- ВОТ ЭТА СТРОКА ВЕРНЕТ БУТЫЛКУ ---
                     .to('#bottle-3d', { opacity: 1, duration: 2 }, "start") 
-                    // -------------------------------------
-
                     .to('.liquid-bg', { opacity: 0.8, duration: 2 }, "start")
                     .to('.detail-1', { opacity: 1, x: 20, duration: 1 }, "details")
                     .to('.detail-2', { opacity: 1, x: -20, duration: 1 }, "details");
 
-            // Horizontal Scroll
+            // --- 3. HORIZONTAL SCROLL ---
             const sections = gsap.utils.toArray('.h-panel');
             if(window.innerWidth > 768) {
                 gsap.to(sections, {
@@ -667,7 +713,7 @@
                 });
             }
 
-            // Alchemy
+            // --- 4. ALCHEMY ---
             const alchemyItems = document.querySelectorAll('.alchemy-item');
             const alchemyBg = document.getElementById('alchemy-bg-img');
             alchemyItems.forEach(item => {
@@ -678,16 +724,18 @@
                 });
             });
 
+            // Parallax Columns
             gsap.utils.toArray('.parallax-col').forEach(col => {
                 const speed = col.getAttribute('data-speed');
                 gsap.to(col, { y: -100 * speed, scrollTrigger: { trigger: col, start: "top bottom", end: "bottom top", scrub: true } });
             });
             
+            // Text Reveal
             gsap.utils.toArray('.reveal-on-scroll').forEach(text => {
                 gsap.from(text, { y: 100, opacity: 0, duration: 1.5, ease: "power4.out", scrollTrigger: { trigger: text, start: "top 85%" } })
             });
 
-            // CTA Animations
+            // --- 5. CTA Animations ---
             gsap.from('.cta-text', { y: 50, opacity: 0, letterSpacing: '0em', duration: 1.5, ease: "power3.out", scrollTrigger: { trigger: '#mega-cta-section', start: "top 70%" } });
             gsap.from('.cta-btn', { scale: 0.8, opacity: 0, duration: 1.2, ease: "elastic.out(1, 0.7)", delay: 0.2, scrollTrigger: { trigger: '#mega-cta-section', start: "top 60%" } });
             
@@ -695,8 +743,13 @@
                 y: 0, opacity: 1, duration: 0.8, stagger: 0.1, ease: "power2.out",
                 scrollTrigger: { trigger: '#mega-cta-section', start: "top 50%" }
             });
-        };	
-		// --- 3D BOTTLE GENERATOR ---
+        };
+		
+		
+		
+		
+		
+		
  const init3DBottle = () => {
             const container = document.getElementById('bottle-3d');
             if (!container) return;
@@ -900,14 +953,24 @@
         };	
 		
 		
-        window.onload = () => {
+window.onload = () => {
             initLenis();
             initThreeJS();
             initCtaParticles();
             initCursor();
             init3DBottle();
             initAnimations();
-        };
+            
+            // "Пинаем" ScrollTrigger дважды, чтобы он точно увидел элементы
+            // Сразу после загрузки
+            ScrollTrigger.refresh();
+            
+            // И через полсекунды (на случай, если что-то подгрузилось позже)
+            setTimeout(() => {
+                ScrollTrigger.refresh();
+            }, 500);
+        };	
+		
     </script>
 </body>
 </html>
